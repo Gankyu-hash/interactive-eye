@@ -1,30 +1,36 @@
+
 <!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>My Interactive Eye</title>
-  <style>
-    * { box-sizing: border-box; }
 
-    body {
-      min-height: 100vh;
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
       margin: 0;
-      display: grid;
-      place-items: center;
-      background: #101018;
+      background: transparent;
       overflow: hidden;
     }
 
-    /* 改这里可以调整眼睛显示大小 */
+    body {
+      display: grid;
+      place-items: center;
+    }
+
     #eye {
       position: relative;
       width: min(86vw, 620px);
-      aspect-ratio: 1 / 1; /* 如果素材不是正方形，改成实际宽高比，例如 1000 / 600 */
+      aspect-ratio: 1 / 1;
       line-height: 0;
       overflow: hidden;
 
-      /* 固定的眼白透明轮廓作为总遮罩 */
       -webkit-mask-image: url("eye-white.png");
       mask-image: url("eye-white.png");
       -webkit-mask-size: 100% 100%;
@@ -47,13 +53,11 @@
       z-index: 1;
     }
 
-    /* 虹膜和瞳孔放在同一个移动组里 */
     #eye .gaze {
       position: absolute;
       inset: 0;
       z-index: 2;
       transform: translate3d(0, 0, 0);
-      transition: transform 180ms ease-out;
       will-change: transform;
       pointer-events: none;
     }
@@ -71,15 +75,18 @@
     #eye .iris { z-index: 1; }
     #eye .pupil { z-index: 2; }
 
-    /* 尊重系统的减少动态效果设置 */
     @media (prefers-reduced-motion: reduce) {
-      #eye .gaze { transition: none; }
+      #eye .gaze {
+        will-change: auto;
+      }
     }
   </style>
 </head>
+
 <body>
   <div id="eye" aria-label="Interactive eye">
     <img class="layer white" src="eye-white.png" alt="">
+
     <div class="gaze" id="gaze">
       <img class="iris" src="iris.png" alt="">
       <img class="pupil" src="pupil.png" alt="">
@@ -90,40 +97,70 @@
     const eye = document.querySelector("#eye");
     const gaze = document.querySelector("#gaze");
 
-    // 移动幅度：数值越大，虹膜和瞳孔移动越明显。
-    // 这是相对于眼球显示宽度/高度的比例。
-    const MAX_X = 0.035;
-    const MAX_Y = 0.035;
+    // ===== 可调整参数 =====
+
+    const MAX_X = 0.018;
+    const MAX_Y = 0.018;
+
+    // 数值越小，追踪越慢、越柔和
+    const SMOOTHING = 0.075;
+
+    // 鼠标离开时的回归速度
+    const RETURN_SPEED = 0.045;
+
+    // ======================
+
+    let targetX = 0;
+    let targetY = 0;
+
+    let currentX = 0;
+    let currentY = 0;
+
+    let isHovering = false;
 
     function moveEye(event) {
       const rect = eye.getBoundingClientRect();
 
-      // 鼠标在眼睛区域中的位置，转换为 -1 到 1
       const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
       const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
 
-      // 限制输入范围，并计算移动距离
       const limitedX = Math.max(-1, Math.min(1, x));
       const limitedY = Math.max(-1, Math.min(1, y));
 
-      const offsetX = limitedX * rect.width * MAX_X;
-      const offsetY = limitedY * rect.height * MAX_Y;
+      targetX = limitedX * rect.width * MAX_X;
+      targetY = limitedY * rect.height * MAX_Y;
 
-      gaze.style.transform =
-        `translate3d(${offsetX}px, ${offsetY}px, 0)`;
+      isHovering = true;
     }
 
     function resetEye() {
-      gaze.style.transform = "translate3d(0, 0, 0)";
+      targetX = 0;
+      targetY = 0;
+      isHovering = false;
     }
+
+    function animate() {
+      const speed = isHovering ? SMOOTHING : RETURN_SPEED;
+
+      currentX += (targetX - currentX) * speed;
+      currentY += (targetY - currentY) * speed;
+
+      gaze.style.transform =
+        `translate3d(${currentX}px, ${currentY}px, 0)`;
+
+      requestAnimationFrame(animate);
+    }
+
+    eye.addEventListener("pointerenter", () => {
+      isHovering = true;
+    });
 
     eye.addEventListener("pointermove", moveEye);
     eye.addEventListener("pointerleave", resetEye);
-
-    // 触屏设备：手指在眼睛上滑动时也会跟随；
-    // 手指离开时回到中央。
     eye.addEventListener("pointerup", resetEye);
     eye.addEventListener("pointercancel", resetEye);
+
+    animate();
   </script>
 </body>
 </html>
