@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>My Interactive Eye</title>
+  <title>My Organic Eye</title>
 
   <style>
     * {
@@ -24,12 +24,25 @@
       place-items: center;
     }
 
-    #eye {
+    /* 整个眼球的运动容器 */
+    #eye-motion {
       position: relative;
       width: min(86vw, 620px);
       aspect-ratio: 1 / 1;
-      line-height: 0;
+
+      transform: translate3d(0, 0, 0) rotate(0deg);
+      transform-origin: center center;
+
+      will-change: transform;
+      pointer-events: none;
+    }
+
+    /* 眼球本体 */
+    #eye {
+      position: absolute;
+      inset: 0;
       overflow: hidden;
+      line-height: 0;
 
       -webkit-mask-image: url("eye-white.png");
       mask-image: url("eye-white.png");
@@ -49,20 +62,22 @@
       user-select: none;
     }
 
-    #eye .white {
+    .white {
       z-index: 1;
     }
 
-    #eye .gaze {
+    /* 虹膜和瞳孔的微小相对运动 */
+    .gaze {
       position: absolute;
       inset: 0;
       z-index: 2;
+
       transform: translate3d(0, 0, 0);
       will-change: transform;
       pointer-events: none;
     }
 
-    #eye .gaze img {
+    .gaze img {
       position: absolute;
       inset: 0;
       width: 100%;
@@ -72,11 +87,17 @@
       user-select: none;
     }
 
-    #eye .iris { z-index: 1; }
-    #eye .pupil { z-index: 2; }
+    .iris {
+      z-index: 1;
+    }
+
+    .pupil {
+      z-index: 2;
+    }
 
     @media (prefers-reduced-motion: reduce) {
-      #eye .gaze {
+      #eye-motion,
+      .gaze {
         will-change: auto;
       }
     }
@@ -84,83 +105,143 @@
 </head>
 
 <body>
-  <div id="eye" aria-label="Interactive eye">
-    <img class="layer white" src="eye-white.png" alt="">
 
-    <div class="gaze" id="gaze">
-      <img class="iris" src="iris.png" alt="">
-      <img class="pupil" src="pupil.png" alt="">
+  <div id="eye-motion">
+    <div id="eye">
+
+      <img
+        class="layer white"
+        src="eye-white.png"
+        alt=""
+      >
+
+      <div class="gaze" id="gaze">
+        <img
+          class="iris"
+          src="iris.png"
+          alt=""
+        >
+
+        <img
+          class="pupil"
+          src="pupil.png"
+          alt=""
+        >
+      </div>
+
     </div>
   </div>
 
   <script>
+    const eyeMotion = document.querySelector("#eye-motion");
     const eye = document.querySelector("#eye");
     const gaze = document.querySelector("#gaze");
 
-    // ===== 可调整参数 =====
+    // ===== 整体眼球运动参数 =====
 
-    const MAX_X = 0.018;
-    const MAX_Y = 0.018;
+    // 整体平移幅度
+    const BODY_MOVE_X = 0.006;
+    const BODY_MOVE_Y = 0.006;
 
-    // 数值越小，追踪越慢、越柔和
-    const SMOOTHING = 0.075;
+    // 整体倾斜角度
+    const BODY_ROTATION = 1.1;
 
-    // 鼠标离开时的回归速度
-    const RETURN_SPEED = 0.045;
+    // 虹膜相对于眼白的微小移动
+    const IRIS_MOVE_X = 0.003;
+    const IRIS_MOVE_Y = 0.003;
 
-    // ======================
+    // 运动平滑程度
+    const BODY_SMOOTH = 0.055;
+    const IRIS_SMOOTH = 0.045;
+
+    // ============================
 
     let targetX = 0;
     let targetY = 0;
 
-    let currentX = 0;
-    let currentY = 0;
+    let bodyX = 0;
+    let bodyY = 0;
+    let bodyRotation = 0;
 
-    let isHovering = false;
+    let irisX = 0;
+    let irisY = 0;
 
-    function moveEye(event) {
-      const rect = eye.getBoundingClientRect();
+    let pointerActive = false;
 
-      const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
-      const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+    function handlePointer(event) {
+      const rect = eyeMotion.getBoundingClientRect();
 
-      const limitedX = Math.max(-1, Math.min(1, x));
-      const limitedY = Math.max(-1, Math.min(1, y));
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
 
-      targetX = limitedX * rect.width * MAX_X;
-      targetY = limitedY * rect.height * MAX_Y;
+      // 鼠标相对于眼球中心的位置
+      const x = (event.clientX - centerX) / (rect.width * 0.8);
+      const y = (event.clientY - centerY) / (rect.height * 0.8);
 
-      isHovering = true;
+      targetX = Math.max(-1, Math.min(1, x));
+      targetY = Math.max(-1, Math.min(1, y));
+
+      pointerActive = true;
     }
 
-    function resetEye() {
+    function resetPointer() {
       targetX = 0;
       targetY = 0;
-      isHovering = false;
+      pointerActive = false;
     }
 
     function animate() {
-      const speed = isHovering ? SMOOTHING : RETURN_SPEED;
+      const width = eyeMotion.offsetWidth;
+      const height = eyeMotion.offsetHeight;
 
-      currentX += (targetX - currentX) * speed;
-      currentY += (targetY - currentY) * speed;
+      // 整体眼球的目标位置
+      const desiredBodyX = targetX * width * BODY_MOVE_X;
+      const desiredBodyY = targetY * height * BODY_MOVE_Y;
 
+      // 眼球轻微倾斜
+      const desiredRotation = targetX * BODY_ROTATION;
+
+      // 平滑追踪
+      bodyX += (desiredBodyX - bodyX) * BODY_SMOOTH;
+      bodyY += (desiredBodyY - bodyY) * BODY_SMOOTH;
+      bodyRotation +=
+        (desiredRotation - bodyRotation) * BODY_SMOOTH;
+
+      // 虹膜只进行非常轻微的内部跟随
+      const desiredIrisX =
+        targetX * width * IRIS_MOVE_X;
+
+      const desiredIrisY =
+        targetY * height * IRIS_MOVE_Y;
+
+      irisX += (desiredIrisX - irisX) * IRIS_SMOOTH;
+      irisY += (desiredIrisY - irisY) * IRIS_SMOOTH;
+
+      // 整个眼球一起运动
+      eyeMotion.style.transform =
+        `translate3d(${bodyX}px, ${bodyY}px, 0) ` +
+        `rotate(${bodyRotation}deg)`;
+
+      // 虹膜和瞳孔作为整体微调
       gaze.style.transform =
-        `translate3d(${currentX}px, ${currentY}px, 0)`;
+        `translate3d(${irisX}px, ${irisY}px, 0)`;
 
       requestAnimationFrame(animate);
     }
 
-    eye.addEventListener("pointerenter", () => {
-      isHovering = true;
+    window.addEventListener("pointermove", handlePointer);
+
+    window.addEventListener("pointerout", (event) => {
+      if (!event.relatedTarget) {
+        resetPointer();
+      }
     });
 
-    eye.addEventListener("pointermove", moveEye);
-    eye.addEventListener("pointerleave", resetEye);
-    eye.addEventListener("pointerup", resetEye);
-    eye.addEventListener("pointercancel", resetEye);
+    window.addEventListener("blur", resetPointer);
 
+    // 启动动画
     animate();
   </script>
+
 </body>
 </html>
