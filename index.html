@@ -29,10 +29,7 @@
       position: relative;
       width: min(86vw, 620px);
       aspect-ratio: 1 / 1;
-
-      transform: translate3d(0, 0, 0) rotate(0deg);
       transform-origin: center center;
-
       will-change: transform;
       pointer-events: none;
     }
@@ -52,6 +49,7 @@
       mask-repeat: no-repeat;
     }
 
+    /* 所有图层使用相同尺寸和坐标 */
     #eye .layer {
       position: absolute;
       inset: 0;
@@ -66,12 +64,11 @@
       z-index: 1;
     }
 
-    /* 虹膜和瞳孔的微小相对运动 */
+    /* 虹膜与瞳孔的整体 */
     .gaze {
       position: absolute;
       inset: 0;
       z-index: 2;
-
       transform: translate3d(0, 0, 0);
       will-change: transform;
       pointer-events: none;
@@ -116,17 +113,8 @@
       >
 
       <div class="gaze" id="gaze">
-        <img
-          class="iris"
-          src="iris.png"
-          alt=""
-        >
-
-        <img
-          class="pupil"
-          src="pupil.png"
-          alt=""
-        >
+        <img class="iris" src="iris.png" alt="">
+        <img class="pupil" src="pupil.png" alt="">
       </div>
 
     </div>
@@ -134,27 +122,34 @@
 
   <script>
     const eyeMotion = document.querySelector("#eye-motion");
-    const eye = document.querySelector("#eye");
     const gaze = document.querySelector("#gaze");
 
-    // ===== 整体眼球运动参数 =====
+    // =================================
+    //             参数区域
+    // =================================
 
-    // 整体平移幅度
-    const BODY_MOVE_X = 0.006;
-    const BODY_MOVE_Y = 0.006;
+    // 整个眼球的移动幅度
+    const MOVE_X = 0.018;
+    const MOVE_Y = 0.015;
 
-    // 整体倾斜角度
-    const BODY_ROTATION = 1.1;
+    // 整体旋转角度
+    const ROTATION = 2.2;
 
-    // 虹膜相对于眼白的微小移动
-    const IRIS_MOVE_X = 0.003;
-    const IRIS_MOVE_Y = 0.003;
+    // 虹膜内部微小偏移
+    const IRIS_X = 0.001;
+    const IRIS_Y = 0.001;
 
-    // 运动平滑程度
-    const BODY_SMOOTH = 0.055;
-    const IRIS_SMOOTH = 0.045;
+    // 惯性强度
+    const STIFFNESS = 0.075;
+    const DAMPING = 0.78;
 
-    // ============================
+    // 呼吸幅度
+    const BREATH_AMOUNT = 0.002;
+
+    // 呼吸速度
+    const BREATH_SPEED = 0.0007;
+
+    // =================================
 
     let targetX = 0;
     let targetY = 0;
@@ -163,84 +158,113 @@
     let bodyY = 0;
     let bodyRotation = 0;
 
+    let velocityX = 0;
+    let velocityY = 0;
+    let velocityRotation = 0;
+
     let irisX = 0;
     let irisY = 0;
 
-    let pointerActive = false;
+    let lastTime = 0;
+    let elapsed = 0;
 
+    // 获取鼠标位置
     function handlePointer(event) {
       const rect = eyeMotion.getBoundingClientRect();
 
       const centerX = rect.left + rect.width / 2;
       const centerY = rect.top + rect.height / 2;
 
-      // 鼠标相对于眼球中心的位置
-      const x = (event.clientX - centerX) / (rect.width * 0.8);
-      const y = (event.clientY - centerY) / (rect.height * 0.8);
+      targetX = Math.max(-1, Math.min(1,
+        (event.clientX - centerX) / (rect.width * 0.9)
+      ));
 
-      targetX = Math.max(-1, Math.min(1, x));
-      targetY = Math.max(-1, Math.min(1, y));
-
-      pointerActive = true;
+      targetY = Math.max(-1, Math.min(1,
+        (event.clientY - centerY) / (rect.height * 0.9)
+      ));
     }
 
+    // 鼠标离开时回到中心
     function resetPointer() {
       targetX = 0;
       targetY = 0;
-      pointerActive = false;
     }
 
-    function animate() {
+    // 动画循环
+    function animate(time) {
+      const dt = lastTime
+        ? Math.min((time - lastTime) / 16.667, 2)
+        : 1;
+
+      lastTime = time;
+      elapsed += dt;
+
       const width = eyeMotion.offsetWidth;
       const height = eyeMotion.offsetHeight;
 
       // 整体眼球的目标位置
-      const desiredBodyX = targetX * width * BODY_MOVE_X;
-      const desiredBodyY = targetY * height * BODY_MOVE_Y;
+      const desiredX = targetX * width * MOVE_X;
+      const desiredY = targetY * height * MOVE_Y;
 
-      // 眼球轻微倾斜
-      const desiredRotation = targetX * BODY_ROTATION;
+      const desiredRotation = targetX * ROTATION;
 
-      // 平滑追踪
-      bodyX += (desiredBodyX - bodyX) * BODY_SMOOTH;
-      bodyY += (desiredBodyY - bodyY) * BODY_SMOOTH;
-      bodyRotation +=
-        (desiredRotation - bodyRotation) * BODY_SMOOTH;
+      // 弹簧式运动
+      const ax = (desiredX - bodyX) * STIFFNESS;
+      const ay = (desiredY - bodyY) * STIFFNESS;
+      const ar = (desiredRotation - bodyRotation) * STIFFNESS;
 
-      // 虹膜只进行非常轻微的内部跟随
-      const desiredIrisX =
-        targetX * width * IRIS_MOVE_X;
+      velocityX = (velocityX + ax * dt) *
+        Math.pow(DAMPING, dt);
 
-      const desiredIrisY =
-        targetY * height * IRIS_MOVE_Y;
+      velocityY = (velocityY + ay * dt) *
+        Math.pow(DAMPING, dt);
 
-      irisX += (desiredIrisX - irisX) * IRIS_SMOOTH;
-      irisY += (desiredIrisY - irisY) * IRIS_SMOOTH;
+      velocityRotation = (velocityRotation + ar * dt) *
+        Math.pow(DAMPING, dt);
+
+      bodyX += velocityX * dt;
+      bodyY += velocityY * dt;
+      bodyRotation += velocityRotation * dt;
+
+      // 虹膜只进行非常微小的相对移动
+      const desiredIrisX = targetX * width * IRIS_X;
+      const desiredIrisY = targetY * height * IRIS_Y;
+
+      irisX += (desiredIrisX - irisX) * 0.045 * dt;
+      irisY += (desiredIrisY - irisY) * 0.045 * dt;
+
+      // 非常轻微的呼吸变化
+      const breathing =
+        Math.sin(elapsed * BREATH_SPEED) * BREATH_AMOUNT;
 
       // 整个眼球一起运动
       eyeMotion.style.transform =
         `translate3d(${bodyX}px, ${bodyY}px, 0) ` +
-        `rotate(${bodyRotation}deg)`;
+        `rotate(${bodyRotation}deg) ` +
+        `scale(${1 + breathing})`;
 
-      // 虹膜和瞳孔作为整体微调
+      // 虹膜与瞳孔同步微调
       gaze.style.transform =
         `translate3d(${irisX}px, ${irisY}px, 0)`;
 
       requestAnimationFrame(animate);
     }
 
+    // 监听鼠标
     window.addEventListener("pointermove", handlePointer);
 
-    window.addEventListener("pointerout", (event) => {
-      if (!event.relatedTarget) {
+    window.addEventListener("blur", resetPointer);
+    window.addEventListener("pointerleave", resetPointer);
+
+    window.addEventListener("pointerup", (event) => {
+      if (event.pointerType !== "mouse") {
         resetPointer();
       }
     });
 
-    window.addEventListener("blur", resetPointer);
+    // 启动
+    requestAnimationFrame(animate);
 
-    // 启动动画
-    animate();
   </script>
 
 </body>
